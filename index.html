@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>西线前线 · 沉浸式二战射击</title>
+<style>
+  :root {
+    --gap: 6px;           /* 准星扩散，由 JS 控制 */
+    --hud-font: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: var(--hud-font); user-select: none; }
+  canvas#game { position: fixed; inset: 0; display: block; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
+
+  /* ---------- 准星 ---------- */
+  #crosshair { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+  #crosshair .c-line { position: absolute; background: rgba(255,255,255,0.95); box-shadow: 0 0 1px rgba(0,0,0,0.8); transition: background 0.05s; }
+  #crosshair .c-line.l-t { width: 2px; height: 8px; left: -1px; top: calc(-1 * var(--gap) - 8px); }
+  #crosshair .c-line.l-b { width: 2px; height: 8px; left: -1px; top: var(--gap); }
+  #crosshair .c-line.l-l { width: 8px; height: 2px; left: calc(-1 * var(--gap) - 8px); top: -1px; }
+  #crosshair .c-line.l-r { width: 8px; height: 2px; left: var(--gap); top: -1px; }
+  #crosshair .c-dot { position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: #fff; border-radius: 50%; }
+  body.hit #crosshair .c-line, body.hit #crosshair .c-dot { background: #ff4a4a; }
+  #hitmark { position: absolute; left: 50%; top: 50%; width: 0; height: 0; opacity: 0; }
+  #hitmark span { position: absolute; width: 12px; height: 2px; background: #fff; }
+  #hitmark span.hm1 { transform: rotate(45deg); left: -6px; top: -1px; }
+  #hitmark span.hm2 { transform: rotate(-45deg); left: -6px; top: -1px; }
+  body.hitmark #hitmark { opacity: 1; transition: opacity 0.35s; }
+
+  /* ---------- 顶部统计 ---------- */
+  #top-stats { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 28px; background: rgba(10,10,12,0.55); padding: 6px 22px; border-radius: 4px; font-size: 15px; color: #d8d8d8; }
+  #top-stats b { color: #fff; font-size: 17px; margin-left: 4px; }
+  #top-stats .hs { color: #ffd75e; }
+  #top-stats .k { color: #7fd0ff; }
+  #top-stats .sc { color: #ffb84d; }
+
+  #timer { position: absolute; top: 56px; left: 50%; transform: translateX(-50%); font-size: 42px; font-weight: 900; color: #fff; text-shadow: 2px 2px 4px #000; display: none; font-variant-numeric: tabular-nums; }
+  #timer.low { color: #ff5a3c; animation: blink 0.5s infinite alternate; }
+
+  /* ---------- 指挥官无线电（COD 风格，屏幕下方） ---------- */
+  #radio-bar { position: absolute; left: 50%; bottom: 15%; transform: translateX(-50%); background: rgba(8,10,8,0.75); border-left: 3px solid #ffd75e; color: #e8e4d0; font-size: 15px; padding: 8px 18px; border-radius: 3px; letter-spacing: 1px; opacity: 0; transition: opacity 0.3s; max-width: 62%; text-align: center; white-space: nowrap; text-shadow: 1px 1px 2px #000; }
+  #radio-bar .r-ico { color: #7fd38a; margin-right: 8px; animation: radioPulse 1.2s infinite alternate; }
+  @keyframes radioPulse { from { opacity: 0.45; } to { opacity: 1; } }
+
+  /* ---------- 战役目标方向箭头（屏幕边缘） ---------- */
+  #aim-arrow { position: absolute; width: 44px; height: 44px; display: none; pointer-events: none; z-index: 4; }
+  #aim-arrow i { position: absolute; left: 50%; top: 50%; width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-bottom: 22px solid #ffd75e; transform: translate(-50%, -50%); filter: drop-shadow(0 0 6px rgba(255,215,94,0.8)); }
+  #aim-arrow b { position: absolute; left: 50%; top: calc(50% + 14px); transform: translateX(-50%); font-size: 12px; font-weight: 800; color: #ffd75e; text-shadow: 1px 1px 2px #000; letter-spacing: 0; white-space: nowrap; }
+
+  /* ---------- 任务目标条 ---------- */
+  #obj-bar { position: absolute; top: 100px; left: 50%; transform: translateX(-50%); display: none; background: rgba(10,10,12,0.62); border: 1px solid rgba(255,215,94,0.4); color: #ffd75e; font-size: 14px; padding: 5px 16px; border-radius: 3px; letter-spacing: 1px; text-shadow: 1px 1px 2px #000; white-space: nowrap; }
+
+  /* ---------- 剧情过场 ---------- */
+  #story { position: fixed; inset: 0; z-index: 40; display: none; align-items: center; justify-content: center; flex-direction: column; background: rgba(4,4,7,0.9); color: #e8e2d0; font-family: var(--hud-font); pointer-events: none; }
+  #story p { font-size: 22px; letter-spacing: 3px; margin: 10px 0; text-align: center; text-shadow: 0 1px 2px #000; line-height: 1.6; }
+  #story p:first-child { font-size: 27px; font-weight: 900; color: #ffd75e; letter-spacing: 6px; }
+  #story .s-continue { margin-top: 30px; font-size: 14px; color: rgba(255,215,94,0.85); letter-spacing: 3px; animation: radioPulse 1s infinite alternate; }
+
+  /* ---------- 击杀反馈 ---------- */
+  #feed { position: absolute; top: 64px; right: 16px; width: 260px; text-align: right; font-size: 14px; }
+  #feed .feed-item { background: rgba(10,10,12,0.6); color: #e8e8e8; padding: 3px 10px; margin-bottom: 4px; border-radius: 3px; animation: feedIn 0.15s ease-out; }
+  #feed .feed-item.hs { background: rgba(70,50,0,0.7); color: #ffd75e; }
+  #feed .gun { color: #9ad0ff; margin: 0 4px; }
+  #center-msg { position: absolute; left: 50%; top: 30%; transform: translate(-50%, -50%); font-size: 46px; font-weight: 900; letter-spacing: 4px; color: #ffd75e; text-shadow: 0 0 18px rgba(255,180,0,0.5), 2px 2px 0 #000; opacity: 0; }
+  #center-msg.msg-kill { color: #fff; }
+  @keyframes feedIn { from { transform: translateX(20px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* ---------- 血条 ---------- */
+  #hp-wrap { position: absolute; left: 20px; bottom: 22px; width: 230px; }
+  #hp-bar { height: 10px; background: rgba(0,0,0,0.65); border: 1px solid rgba(255,255,255,0.35); border-radius: 2px; overflow: hidden; }
+  #hp-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #c9f04a, #8fd314); transition: width 0.2s; }
+  #hp-fill.low { background: linear-gradient(90deg, #ff5a3c, #d62b1a); }
+  #hp-num { position: absolute; right: 0; top: -20px; font-size: 20px; font-weight: 700; color: #fff; text-shadow: 1px 1px 2px #000; }
+
+  /* ---------- 弹药 ---------- */
+  #ammo-wrap { position: absolute; right: 24px; bottom: 20px; text-align: right; }
+  #ammo-main-wrap { position: relative; width: 66px; height: 66px; margin-left: auto; }
+  #ammo-main { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 800; color: #fff; text-shadow: 2px 2px 3px #000; line-height: 1; transition: color 0.2s; }
+  #ammo-main small { font-size: 22px; font-weight: 600; color: #b9b9b9; margin-left: 6px; }
+  #ammo-sub { font-size: 13px; color: #d0a94a; text-shadow: 1px 1px 2px #000; margin-top: 2px; letter-spacing: 2px; }
+  /* 战争雷霆式装填环 */
+  #reload-ring { position: absolute; inset: 0; border-radius: 50%; display: none; pointer-events: none; }
+  #reload-ring-fill { position: absolute; inset: 0; border-radius: 50%; }
+  #reload-ring-hole { position: absolute; inset: 7px; border-radius: 50%; background: rgba(8,10,12,0.9); box-shadow: inset 0 0 6px rgba(0,0,0,0.6); }
+  #ammo-main.reloading { color: #9a8f7a; animation: ammoBlink 0.8s infinite alternate; }
+  @keyframes ammoBlink { from { opacity: 0.5; } to { opacity: 1; } }
+  #weapon-name { font-size: 13px; color: #d0d0d0; text-shadow: 1px 1px 2px #000; margin-top: 2px; }
+
+  /* ---------- 雷达 ---------- */
+  #radar-wrap { position: absolute; top: 12px; right: 16px; width: 150px; height: 150px; }
+  #radar { width: 150px; height: 150px; border-radius: 50%; background: rgba(15,20,15,0.55); border: 1px solid rgba(255,255,255,0.25); }
+  #radar-wrap::after { content: "RADAR"; position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%); font-size: 10px; color: rgba(255,255,255,0.5); letter-spacing: 2px; }
+
+  /* ---------- 受击 / 死亡 ---------- */
+  #hurt { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, rgba(200,0,0,0.55) 100%); opacity: 0; }
+
+  /* ---------- AWP 开镜 ---------- */
+  #zoom-overlay { position: absolute; inset: 0; display: none; z-index: 3; pointer-events: none; }
+  #zoom-overlay .z-ring { position: absolute; left: 50%; top: 50%; width: min(74vh, 74vw); height: min(74vh, 74vw); transform: translate(-50%, -50%); border-radius: 50%; box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.82); }
+  #zoom-overlay .z-hline, #zoom-overlay .z-vline { position: absolute; left: 50%; top: 50%; background: rgba(0, 0, 0, 0.45); }
+  #zoom-overlay .z-hline { width: min(74vh, 74vw); height: 1px; transform: translate(-50%, -50%); }
+  #zoom-overlay .z-vline { width: 1px; height: min(74vh, 74vw); transform: translate(-50%, -50%); }
+  #zoom-overlay .z-dot { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; transform: translate(-50%, -50%); background: #000; border-radius: 50%; }
+  /* 开镜中央装填环（战争雷霆式，在准星位置） */
+  #zoom-reload-ring { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; transform: translate(-50%, -50%); border-radius: 50%; display: none; pointer-events: none; }
+  #zoom-reload-fill { position: absolute; inset: 0; border-radius: 50%; }
+  #zoom-reload-hole { position: absolute; inset: 11px; border-radius: 50%; background: rgba(6,8,10,0.92); box-shadow: inset 0 0 10px rgba(0,0,0,0.7); }
+  #zoom-reload-txt { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #ffd75e; font-size: 13px; font-weight: 700; letter-spacing: 2px; text-shadow: 1px 1px 2px #000; }
+
+  /* ---------- 武器槽 ---------- */
+  #weapon-slot { position: absolute; left: 50%; bottom: 54px; transform: translateX(-50%); display: flex; gap: 8px; }
+  #weapon-slot .ws-item { font-size: 12px; color: #999; background: rgba(0,0,0,0.5); padding: 3px 12px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15); letter-spacing: 1px; transition: all 0.15s; }
+  #weapon-slot .ws-item.active { color: #ffd75e; border-color: #ffd75e; background: rgba(60,45,10,0.6); }
+
+  #death { position: absolute; inset: 0; background: #000; opacity: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; z-index: 6; }
+  #death .d-title { font-size: 52px; font-weight: 900; color: #ff5a3c; text-shadow: 0 0 20px rgba(255,0,0,0.6); }
+  #death .d-sub { color: #bbb; font-size: 15px; }
+
+  /* ---------- 底部提示 ---------- */
+  #hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); font-size: 13px; color: rgba(255,255,255,0.75); text-shadow: 1px 1px 2px #000; background: rgba(0,0,0,0.4); padding: 4px 14px; border-radius: 3px; white-space: nowrap; }
+
+  /* ---------- 菜单 ---------- */
+  #menu { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; flex-direction: column; background: linear-gradient(180deg, rgba(30,40,60,0.72), rgba(70,55,30,0.78)); backdrop-filter: blur(2px); color: #eee; font-family: var(--hud-font); }
+  #menu.hidden { display: none; }
+  #menu .m-title { font-size: 58px; font-weight: 900; letter-spacing: 6px; color: #ffd75e; text-shadow: 0 4px 0 rgba(120,70,0,0.6), 0 0 30px rgba(255,180,0,0.35); }
+  #menu .m-sub { font-size: 16px; letter-spacing: 10px; color: #cfe3ff; margin-top: 6px; text-transform: uppercase; }
+  #menu .m-panel { margin-top: 42px; background: rgba(8,8,10,0.7); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; padding: 26px 34px; width: 420px; max-width: 92vw; }
+  #menu .m-row { display: flex; align-items: center; justify-content: space-between; margin: 14px 0; font-size: 15px; color: #d5d5d5; }
+  #menu .m-row input[type=range] { width: 180px; accent-color: #ffd75e; }
+  #menu .m-row .val { color: #ffd75e; font-weight: 700; width: 34px; text-align: right; }
+  #menu .m-btns { display: flex; gap: 8px; }
+  #menu .m-btn { flex: 1; padding: 8px 0; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.25); color: #ddd; border-radius: 5px; cursor: pointer; font-size: 15px; transition: all 0.12s; }
+  #menu .m-btn:hover { background: rgba(255,215,94,0.16); border-color: #ffd75e; color: #ffd75e; }
+  #menu .m-btn.primary { background: #c8961e; border-color: #ffd75e; color: #1a1405; font-weight: 800; font-size: 17px; }
+  #menu .m-btn.primary:hover { background: #ffd75e; }
+  #menu .m-best { margin-top: 12px; text-align: center; font-size: 14px; color: #ffd75e; letter-spacing: 1px; }
+  #menu .m-best.best-none { color: #888; }
+  #start-btn { margin-top: 26px; width: 100%; padding: 14px 0; font-size: 22px; font-weight: 900; letter-spacing: 8px; background: linear-gradient(180deg, #ffd75e, #c8961e); border: none; border-radius: 6px; color: #1a1405; cursor: pointer; box-shadow: 0 4px 14px rgba(255,180,0,0.3); transition: transform 0.1s; }
+  #start-btn:hover { transform: scale(1.02); }
+  #menu .m-help { margin-top: 22px; font-size: 13px; color: #9aa; line-height: 1.9; }
+  #menu .m-help b { color: #ffd75e; }
+  #menu .m-stats { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 26px; font-size: 14px; color: #ccc; }
+  #menu .m-stats b { color: #fff; font-size: 16px; }
+  #menu .m-stats .g { color: #ffd75e; }
+  #menu .m-foot { margin-top: 26px; font-size: 12px; color: rgba(255,255,255,0.45); text-align: center; line-height: 1.7; }
+  #version-tag { position: fixed; right: 10px; bottom: 6px; z-index: 30; font-size: 11px; color: rgba(255,255,255,0.4); font-family: var(--hud-font); }
+
+  /* ---------- 入口标题画面 ---------- */
+  #title-screen { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; flex-direction: column; font-family: var(--hud-font); }
+  #title-screen .ts-grad { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(10,12,16,0.25) 0%, rgba(5,6,10,0.82) 78%); pointer-events: none; }
+  #title-screen .ts-badge { position: relative; font-size: 15px; letter-spacing: 6px; color: #d8cf9a; text-shadow: 1px 1px 2px #000; margin-bottom: 18px; }
+  #title-screen .ts-title { position: relative; font-size: 84px; font-weight: 900; letter-spacing: 18px; color: #ffd75e; text-shadow: 0 5px 0 rgba(90,55,0,0.7), 0 0 40px rgba(255,190,40,0.4); animation: tsTitleGlow 3s ease-in-out infinite alternate; }
+  @keyframes tsTitleGlow { from { text-shadow: 0 5px 0 rgba(90,55,0,0.7), 0 0 30px rgba(255,190,40,0.3); } to { text-shadow: 0 5px 0 rgba(90,55,0,0.7), 0 0 60px rgba(255,200,60,0.7); } }
+  #title-screen .ts-sub { position: relative; font-size: 17px; letter-spacing: 10px; color: #cfe3ff; margin-top: 8px; text-shadow: 1px 1px 3px #000; }
+  #title-screen .ts-desc { position: relative; font-size: 14px; color: rgba(220,220,200,0.75); margin-top: 26px; letter-spacing: 2px; }
+  #title-screen .ts-btn { position: relative; margin-top: 46px; padding: 14px 58px; font-size: 21px; font-weight: 900; letter-spacing: 8px; background: linear-gradient(180deg, #ffd75e, #c8961e); border: 2px solid #ffd75e; border-radius: 6px; color: #1a1405; cursor: pointer; box-shadow: 0 0 24px rgba(255,180,0,0.45), 0 6px 0 rgba(80,45,0,0.5); transition: transform 0.12s, box-shadow 0.12s; }
+  #title-screen .ts-btn:hover { transform: scale(1.05); box-shadow: 0 0 40px rgba(255,190,50,0.7), 0 8px 0 rgba(80,45,0,0.5); }
+  #title-screen .ts-tip { position: relative; margin-top: 34px; font-size: 12px; color: rgba(255,255,255,0.55); letter-spacing: 1px; }
+  #title-screen .ts-ver { position: absolute; bottom: 26px; width: 100%; text-align: center; font-size: 12px; color: rgba(255,255,255,0.35); letter-spacing: 3px; }
+  #title-screen .ts-ember { position: absolute; bottom: -12px; width: 6px; height: 6px; border-radius: 50%; background: radial-gradient(circle, #ffd75e 0%, rgba(255,120,30,0.6) 60%, transparent 100%); opacity: 0; animation: tsEmber var(--dur) linear infinite; }
+  @keyframes tsEmber { 0% { transform: translateY(0) translateX(0); opacity: 0; } 12% { opacity: 0.9; } 100% { transform: translateY(-92vh) translateX(var(--dx)); opacity: 0; } }
+
+  /* ---------- 挑战结算 ---------- */
+  #result { position: fixed; inset: 0; z-index: 20; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 14, 0.85); color: #eee; font-family: var(--hud-font); }
+  #result .r-title { font-size: 32px; font-weight: 900; letter-spacing: 10px; color: #ccc; }
+  #result .r-rating { font-size: 120px; font-weight: 900; line-height: 1.1; margin: 6px 0; text-shadow: 0 0 34px rgba(255,180,0,0.45); }
+  #result .r-rating.rating-S { color: #ffd75e; }
+  #result .r-rating.rating-A { color: #ff6a4a; }
+  #result .r-rating.rating-B { color: #7fd0ff; }
+  #result .r-rating.rating-C { color: #7fd38a; }
+  #result .r-rating.rating-D { color: #999; }
+  #result .r-score { font-size: 30px; font-weight: 800; }
+  #result .r-stats { margin-top: 14px; color: #bbb; font-size: 15px; line-height: 2; text-align: center; }
+  #result .r-new { color: #ffd75e; font-size: 20px; font-weight: 900; margin-top: 10px; display: none; text-shadow: 0 0 14px rgba(255,200,0,0.6); }
+  #result .r-btns { display: flex; gap: 14px; margin-top: 24px; }
+  #result .r-btns button { padding: 12px 30px; font-size: 16px; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.08); color: #eee; transition: all 0.12s; }
+  #result .r-btns button:hover { border-color: #ffd75e; color: #ffd75e; }
+  #result .r-btns button:first-child { background: #c8961e; border-color: #ffd75e; color: #1a1405; font-weight: 800; }
+  #result .r-btns button:first-child:hover { background: #ffd75e; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="top-stats">
+    <div>分数 <b class="sc" id="st-score">0</b></div>
+    <div>击杀 <b class="k" id="st-kills">0</b></div>
+    <div>爆头 <b class="hs" id="st-hs">0</b></div>
+    <div>连杀 <b id="st-streak">0</b></div>
+    <div>命中 <b id="st-acc">-</b></div>
+    <div>爆头率 <b class="hs" id="st-hsr">-</b></div>
+  </div>
+  <div id="timer"></div>
+  <div id="obj-bar"></div>
+  <div id="radio-bar"></div>
+  <div id="aim-arrow"></div>
+  <div id="feed"></div>
+  <div id="center-msg"></div>
+
+  <div id="radar-wrap"><canvas id="radar" width="150" height="150"></canvas></div>
+
+  <div id="hp-wrap">
+    <div id="hp-num">100</div>
+    <div id="hp-bar"><div id="hp-fill"></div></div>
+  </div>
+
+  <div id="ammo-wrap">
+    <div id="ammo-main-wrap">
+      <div id="reload-ring"><div id="reload-ring-fill"></div><div id="reload-ring-hole"></div></div>
+      <div id="ammo-main">30</div>
+    </div>
+    <div id="ammo-sub">∞</div>
+    <div id="weapon-name">M1A1 汤普森</div>
+  </div>
+
+  <div id="crosshair">
+    <span class="c-line l-t"></span><span class="c-line l-b"></span>
+    <span class="c-line l-l"></span><span class="c-line l-r"></span>
+    <span class="c-dot"></span>
+  </div>
+  <div id="hitmark"><span class="hm1"></span><span class="hm2"></span></div>
+
+  <!-- AWP 开镜遮罩 -->
+  <div id="zoom-overlay">
+    <div class="z-ring"></div>
+    <div class="z-hline"></div>
+    <div class="z-vline"></div>
+    <div class="z-dot"></div>
+    <div id="zoom-reload-ring">
+      <div id="zoom-reload-fill"></div>
+      <div id="zoom-reload-hole"></div>
+      <div id="zoom-reload-txt">装填中</div>
+    </div>
+  </div>
+
+  <!-- 武器槽 -->
+  <div id="weapon-slot">
+    <span class="ws-item active" data-w="0">1 · 汤普森</span>
+    <span class="ws-item" data-w="1">2 · 春田</span>
+    <span class="ws-item" data-w="2">3 · 格斗刀</span>
+    <span class="ws-item" data-w="3">4 · 霰弹枪</span>
+    <span class="ws-item" data-w="4">5 · 火箭筒</span>
+  </div>
+
+  <div id="hurt"></div>
+  <div id="death">
+    <div class="d-title">你阵亡了</div>
+    <div class="d-sub" id="death-info">2 秒后重生…</div>
+  </div>
+  <div id="hint">WASD 移动 · 鼠标射击 · Shift 静步 · 空格 跳跃 · 1~5 或滚轮 换枪 · 弹匣打空自动装弹 · 右键 点击开镜(春田)</div>
+</div>
+
+<!-- 挑战结算 -->
+<div id="result">
+  <div class="r-title" id="r-title">挑战结束</div>
+  <div class="r-rating" id="r-rating">S</div>
+  <div class="r-score" id="r-score">0 分</div>
+  <div class="r-stats" id="r-stats"></div>
+  <div class="r-new" id="r-new">新纪录！</div>
+  <div class="r-btns">
+    <button id="r-again">再来一局</button>
+    <button id="r-menu">返回菜单</button>
+  </div>
+</div>
+
+<div id="menu" class="hidden">
+  <div class="m-title">西线前线</div>
+  <div class="m-sub">Frontline Assault · WWII</div>
+  <div class="m-panel">
+    <div class="m-row">
+      <span>鼠标灵敏度</span>
+      <input type="range" id="sens" min="0.4" max="2.8" step="0.1" value="1.2">
+      <span class="val" id="sens-val">1.2</span>
+    </div>
+    <div class="m-row">
+      <span>模式</span>
+      <div class="m-btns">
+        <button class="m-btn" data-mode="free">前线巡逻</button>
+        <button class="m-btn" data-mode="challenge">60秒突击</button>
+        <button class="m-btn" data-mode="hold">坚守阵地</button>
+        <button class="m-btn" data-mode="campaign">战役模式</button>
+      </div>
+    </div>
+    <div class="m-row">
+      <span>战场</span>
+      <div class="m-btns">
+        <button class="m-btn" data-map="dust">诺曼底废墟</button>
+        <button class="m-btn" data-map="snow">东线雪原</button>
+        <button class="m-btn" data-map="inferno">柏林巷战</button>
+      </div>
+    </div>
+    <div class="m-row">
+      <span>靶型</span>
+      <div class="m-btns">
+        <button class="m-btn" data-train="move">移动靶</button>
+        <button class="m-btn" data-train="static">静止靶</button>
+        <button class="m-btn" data-train="head">爆头模式</button>
+      </div>
+    </div>
+    <div class="m-row">
+      <span>德军数量</span>
+      <div class="m-btns">
+        <button class="m-btn" data-bots="1">1</button>
+        <button class="m-btn" data-bots="2">2</button>
+        <button class="m-btn" data-bots="3">3</button>
+        <button class="m-btn" data-bots="4">4</button>
+        <button class="m-btn" data-bots="5">5</button>
+      </div>
+    </div>
+    <div class="m-best" id="m-best"></div>
+    <button id="start-btn">开始作战</button>
+    <div class="m-help">
+      <b>W A S D</b> 移动 &nbsp; <b>鼠标</b> 瞄准 / 射击(按住连发) &nbsp; <b>Shift</b> 静步<br>
+      <b>空格</b> 跳跃 &nbsp; <b>1~5 / 滚轮</b> 换枪 &nbsp; <b>右键</b> 点击开镜(春田)<br>
+      <b>Esc</b> 暂停 · 弹匣打空自动装弹，备弹无限<br>
+      靶型：<b>移动靶</b>德军游荡会打 · <b>静止靶</b>站桩纯练准度 · <b>爆头模式</b>只有爆头才有效<br>
+      战役：四阶段剧情推进 · 死亡从本关重来 · 打穿诺曼底
+    </div>
+    <div class="m-stats" id="menu-stats" style="display:none">
+      <div>击杀 <b id="ms-kills">0</b></div>
+      <div>死亡 <b id="ms-deaths">0</b></div>
+      <div>爆头 <b class="g" id="ms-hs">0</b></div>
+      <div>爆头率 <b class="g" id="ms-hsp">-</b></div>
+      <div>命中率 <b id="ms-acc">-</b></div>
+      <div>最高连杀 <b id="ms-streak">0</b></div>
+      <div>用时 <b id="ms-time">-</b></div>
+      <div>射击 <b id="ms-shots">0</b></div>
+    </div>
+    <div class="m-foot" id="m-foot">德军会移动、跳跃、反击 · 伤害极低，放心作战<br>练习模式：无限备弹，专注压枪与爆头</div>
+  </div>
+</div>
+
+<!-- 剧情过场 -->
+<div id="story"></div>
+
+<div id="version-tag">西线前线 v2.0 · 手感继承 DUST AIM v2.2</div>
+
+<!-- 入口标题画面 -->
+<div id="title-screen">
+  <div class="ts-grad"></div>
+  <div class="ts-badge">★ 盟军 · 西线 ★</div>
+  <div class="ts-title">西线前线</div>
+  <div class="ts-sub">FRONTLINE ASSAULT · 诺曼底 1944</div>
+  <div class="ts-desc">德军的精锐机器人部队已部署滩头——钢铁铸就的突击兵，不惧死亡，不知疲倦</div>
+  <button id="ts-enter" class="ts-btn">进入战场 ▸</button>
+  <div class="ts-tip">WASD 移动 · 鼠标射击 · 1~5 换枪 · 弹匣打空自动装填</div>
+  <div class="ts-ver">手感母版：CS:GO 沙漠练枪场 · 体素士兵模型：CC0 Shock Trooper</div>
+</div>
+
+<script src="three.min.js"></script>
+<script src="models/OBJLoader.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
