@@ -36,3 +36,7 @@ models/           # 模型与音频资源
 需要进一步做跨设备操作测试、帧率验收与第三方资源的授权清点。仓库整体许可证尚待确认；请勿假定模型、音乐与其他素材自动允许二次分发。
 
 问题反馈：[GitHub Issues](https://github.com/ndshuge/ww2-frontline/issues)。
+
+## 安全与素材审查
+
+[第三方依赖与音视频来源清单](docs/ASSET_PROVENANCE.md)
