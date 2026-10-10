@@ -1,5 +1,10 @@
 # 西线前线 · WW2 Frontline
 
+> **项目迁移公告（2026-10-10）**：此仓库作为历史版本保存。当前维护入口为 [西线前线](https://ndshuge.github.io/ndshuge-game/games/ww2-frontline/)，统一代码在 [新仓库](https://github.com/ndshuge/ndshuge-game/tree/main/games/ww2-frontline)。旧版本代码、历史记录与独立网页仍保留，不会强制跳转。
+
+---
+
+
 > 一款使用 Three.js 与原生 JavaScript 开发的浏览器二战题材 3D FPS 实验。
 
 **[在线试玩 →](https://ndshuge.github.io/ww2-frontline/)**
